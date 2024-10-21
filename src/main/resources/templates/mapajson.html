@@ -1,0 +1,200 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="UTF-8">
+    <title>GeoJSON con Turf.js</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=0">
+    <link type="text/css" rel="stylesheet" href="https://componentes.cnig.es/api-core/assets/css/apiign.ol.min.css">
+    <script type="text/javascript" src="https://componentes.cnig.es/api-core/vendor/browser-polyfill.js"></script>
+    <script type="text/javascript" src="https://componentes.cnig.es/api-core/js/apiign.ol.min.js"></script>
+    <script type="text/javascript" src="https://componentes.cnig.es/api-core/js/configuration.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/js/bootstrap.min.js" integrity="sha384-0pUGZvbkm6XF6gxjEnlmuGrJXVbNuzT9qBBavbLwCsOGabYfZo0T0to5eqruptLy" crossorigin="anonymous"></script>
+    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/css/bootstrap.min.css" integrity="sha384-QWTKZyjpPEjISv5WaRU9OFeRpok6YctnYmDr5pNlyT2bRjXh0JMhjY6hW+ALEwIH" crossorigin="anonymous">
+    <style>
+        html, body {
+            margin: 0;
+            padding: 0;
+            height: 100%;
+            overflow: hidden;
+        }
+        .m-container {
+            margin-left: 0;
+            padding: 0;
+            height: 100%;
+            width: 100%;
+        }
+        .m-popup {
+            background: white;
+        }
+        .m-header {
+            text-align: right;
+        }
+        .m-title {
+            display: flex !important;
+            color: black;
+            font-size: large;
+        }
+        .m-popup-closer {
+            color: #ff9191;
+            font-size: large;
+        }
+        .m-herramienta-container {
+            top: 20px;
+            left: 600px;
+        }
+        .buttonHerramienta {
+            border: 2px solid #FFF !important;
+            border-radius: 50% !important;
+            background-color: #71A7D3 !important;
+        }
+        .buttonHerramienta:before {
+            content: "🔭";
+            font-size: 22px;
+            font-family: none;
+            color: #FFF !important;
+        }
+        .buttonHerramienta.activated {
+            border: 2px solid #71A7D3 !important;
+            border-radius: 50% !important;
+            background-color: #ffffff !important;
+        }
+        .buttonHerramienta.activated:before {
+            background-color: #ffffff !important;
+            color: #71A7D3 !important;
+        }
+    </style>
+    <script src="https://cdn.jsdelivr.net/npm/@turf/turf@6/turf.min.js"></script>
+</head>
+<body>
+<div class="container mt-5" style="height: 80%">
+    <div id="mapjs" class="m-container"></div>
+</div>
+<script>
+    // Definir la URL de la API para obtener las estaciones
+    const apiUrl = "http://localhost:8080/api/estaciones";
+
+    // Definir el estilo base de los puntos en el mapa
+    let estilo_base = new M.style.Generic({
+        point: {
+            label: {
+                text: '📻',
+                color: 'red',
+                scale: 3,
+                align: M.style.align.CENTER,
+                baseline: M.style.baseline.MIDDLE,
+            }
+        }
+    });
+
+    // Configuración del mapa
+            M.proxy(false);
+            const mapjs = M.map({
+                container: 'mapjs', // ID del contenedor del mapa
+                controls: ['scaleline', 'backgroundlayers'],
+                zoom: 5,
+                maxZoom: 20,
+                minZoom: 6,
+                center: [-467062.8225, 4683459.6216],
+            });
+
+
+    // Crear el estilo compuesto con el estilo de clusters
+        let clusterStyle = new M.style.Cluster();
+        let composite = clusterStyle.add(estilo_base);
+
+    // Crear un panel de herramientas adicional para activar/desactivar el estilo cluster
+    const panelExtra = new M.ui.Panel('toolsExtra', {
+        className: 'm-herramienta',
+        collapsedButtonClass: 'm-tools',
+        position: M.ui.position.TL
+    });
+
+
+
+    // Añadir el panel al mapa
+    mapjs.addPanels([panelExtra]);
+
+    // Añadir el botón de la herramienta al panel
+    document.querySelector('.m-herramienta .m-panel-controls').innerHTML +=
+        `
+        <div class="m-control m-herramienta-container">
+            <button id="m-herramienta-button" class="buttonHerramienta" title="Herramienta"></button>
+        </div>
+        `
+
+    // Realizar una solicitud para obtener los datos de la API
+    fetch(apiUrl)
+        .then(response => response.json())
+        .then(data => {
+            // Crear una colección de características (FeatureCollection) usando Turf.js
+            let featureCollection = turf.featureCollection(
+                data.map(point =>
+                    turf.point([point.lon, point.lat], {
+                        name: point.name,
+                        codigoCentro: point.codigoCentro,
+                        frecuenciaEmision: point.frecuenciaEmision
+                    })
+                )
+            );
+
+            // Crear la capa GeoJSON con la colección de puntos
+            const geodesia = new M.layer.GeoJSON({
+                name: "Puntos",
+                source: featureCollection,
+                extract: true
+            });
+
+            // Aplicar el estilo base a los puntos
+            geodesia.setStyle(estilo_base);
+
+            // Mostrar la colección GeoJSON en la consola para propósitos de depuración
+            console.log(JSON.stringify(featureCollection, null, 2));
+
+            // Evento para manejar la selección de características
+            geodesia.on(M.evt.SELECT_FEATURES, function (features, evt) {
+                if (features[0] instanceof M.ClusteredFeature) {
+                    document.getElementsByClassName("m-popup m-collapsed")[0].hidden = true;
+                    evt.preventDefault();
+                }
+            });
+
+            // Configurar estilo al activarse el control
+            geodesia.setStyle(composite);
+
+            // Agregar la capa al mapa
+            mapjs.addLayers(geodesia);
+
+            // Crear un control personalizado
+            const control1 = new M.Control(new M.impl.Control(), 'ControlPrueba');
+            window.control1 = control1;
+
+            // Definir la vista del control
+            control1.createView = (map) => {
+                const contenedor = document.createElement('div');
+                return contenedor;
+            }
+
+            // Configurar el botón de activación del control
+            control1.getActivationButton = (html) => {
+                return html.querySelector('#m-herramienta-button');
+            }
+
+            // Definir las acciones del control al activarse y desactivarse
+                control1.activate = () => {
+                    geodesia.setStyle(composite);
+                }
+                control1.deactivate = () => {
+                    geodesia.setStyle(estilo_base);
+                }
+
+            // Gestionar la activación del control
+                control1.manageActivation(document.querySelector('.m-herramienta-container'));
+        })
+        .catch(error => {
+            console.error('Error al obtener las estaciones:', error);
+        });
+
+
+</script>
+</body>
+</html>
